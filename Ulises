@@ -1,0 +1,358 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Fútbol Pro 27</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#07150d;color:white;font-family:Arial;text-align:center;overflow:hidden}
+header{height:70px;background:#10251a;display:flex;align-items:center;justify-content:space-around}
+h2{color:#aaff55;margin:0;font-size:20px}
+#score{font-size:27px;font-weight:bold}
+canvas{width:100%;height:calc(100dvh - 190px);display:block;touch-action:none}
+.controls{height:115px;display:flex;align-items:center;justify-content:space-around}
+.pad{display:grid;grid-template-columns:48px 48px 48px;grid-template-rows:42px 42px;gap:4px}
+button{border:0;border-radius:10px;background:#a5e84b;color:#102010;font-weight:bold;font-size:16px;padding:12px}
+.pad button{padding:5px;font-size:21px;background:#315a3d;color:white;touch-action:none}
+.up{grid-column:2}.left{grid-column:1;grid-row:2}.down{grid-column:2;grid-row:2}.right{grid-column:3;grid-row:2}
+.actions{display:flex;gap:8px}
+.actions button{width:75px;height:55px;background:#2378ce;color:white}
+.actions button:last-child{background:#d8751e}
+#menu{position:fixed;inset:0;background:#06130eef;display:flex;align-items:center;justify-content:center;z-index:5}
+.panel{background:#153923;border:2px solid #aaff55;border-radius:18px;padding:25px;width:85%;max-width:360px}
+.panel h1{color:#baff65}
+</style>
+</head>
+<body>
+
+<header>
+<div><h2>⚽ FÚTBOL PRO 27</h2><small>PARTIDO RÁPIDO</small></div>
+<div id="score">0 - 0</div>
+<div id="clock">00:00</div>
+</header>
+
+<canvas id="game" width="900" height="550"></canvas>
+
+<div class="controls">
+<div class="pad">
+<button class="up" data-dir="up">▲</button>
+<button class="left" data-dir="left">◀</button>
+<button class="down" data-dir="down">▼</button>
+<button class="right" data-dir="right">▶</button>
+</div>
+<div class="actions">
+<button id="pass">PASAR</button>
+<button id="shoot">TIRAR</button>
+</div>
+</div>
+
+<div id="menu">
+<div class="panel">
+<h1>⚽ FÚTBOL PRO 27</h1>
+<p>11 contra 11</p>
+<p>Controles · Pases · Tiros · Porteros · Computadora</p>
+<button id="start">JUGAR PARTIDO</button>
+</div>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const W=900,H=550;
+
+let home=[],away=[];
+let ball={x:450,y:275,vx:0,vy:0,owner:null};
+let selected=9;
+let score1=0,score2=0,seconds=0;
+let running=false;
+let keys={};
+let last=0;
+
+const formation=[
+[65,275],[200,100],[200,210],[200,340],[200,450],
+[370,90],[370,210],[370,340],[370,460],
+[500,210],[500,340]
+];
+
+function createTeams(){
+ home=[];away=[];
+ for(let i=0;i<11;i++){
+  let [x,y]=formation[i];
+  home.push({x,y,bx:x,by:y,number:i+1});
+  away.push({x:W-x,y,bx:W-x,by:y,number:i+1});
+ }
+}
+
+function field(){
+ ctx.fillStyle="#16743a";
+ ctx.fillRect(0,0,W,H);
+
+ for(let i=0;i<10;i++){
+  ctx.fillStyle=i%2?"#197d3d":"#218548";
+  ctx.fillRect(i*90,0,90,H);
+ }
+
+ ctx.strokeStyle="white";
+ ctx.lineWidth=4;
+ ctx.strokeRect(25,20,850,510);
+
+ ctx.beginPath();
+ ctx.moveTo(450,20);
+ ctx.lineTo(450,530);
+ ctx.stroke();
+
+ ctx.beginPath();
+ ctx.arc(450,275,75,0,Math.PI*2);
+ ctx.stroke();
+
+ ctx.strokeRect(25,150,125,250);
+ ctx.strokeRect(750,150,125,250);
+ ctx.strokeRect(25,210,55,130);
+ ctx.strokeRect(820,210,55,130);
+
+ ctx.fillStyle="white";
+ ctx.fillRect(5,220,20,110);
+ ctx.fillRect(875,220,20,110);
+}
+
+function drawTeam(team,color){
+ team.forEach((p,i)=>{
+  ctx.fillStyle="rgba(0,0,0,.3)";
+  ctx.beginPath();
+  ctx.ellipse(p.x,p.y+12,15,6,0,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle=color;
+  ctx.beginPath();
+  ctx.arc(p.x,p.y,13,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.strokeStyle=color==="#fff"?"#315fe0":"#ffcf42";
+  ctx.lineWidth=3;
+  ctx.stroke();
+
+  ctx.fillStyle=color==="#fff"?"#111":"white";
+  ctx.font="bold 11px Arial";
+  ctx.textAlign="center";
+  ctx.fillText(p.number,p.x,p.y+4);
+
+  if(team===home&&i===selected){
+   ctx.beginPath();
+   ctx.strokeStyle="#caff42";
+   ctx.lineWidth=3;
+   ctx.arc(p.x,p.y,19,0,Math.PI*2);
+   ctx.stroke();
+  }
+ });
+}
+
+function draw(){
+ field();
+ drawTeam(home,"#fff");
+ drawTeam(away,"#e52d32");
+
+ ctx.fillStyle="white";
+ ctx.beginPath();
+ ctx.arc(ball.x,ball.y,9,0,Math.PI*2);
+ ctx.fill();
+ ctx.strokeStyle="#222";
+ ctx.lineWidth=2;
+ ctx.stroke();
+}
+
+function move(dx,dy){
+ if(!running)return;
+ let p=home[selected];
+ p.x=Math.max(35,Math.min(865,p.x+dx*8));
+ p.y=Math.max(30,Math.min(520,p.y+dy*8));
+
+ if(Math.hypot(p.x-ball.x,p.y-ball.y)<30){
+  ball.owner=selected;
+ }
+}
+
+function pass(){
+ if(!running)return;
+ let p=home[selected];
+ if(ball.owner!==selected&&Math.hypot(p.x-ball.x,p.y-ball.y)>35)return;
+
+ let nearest=null,best=Infinity;
+ home.forEach((q,i)=>{
+  if(i===selected)return;
+  let d=Math.hypot(q.x-p.x,q.y-p.y);
+  if(d<best){best=d;nearest=q;}
+ });
+
+ if(nearest){
+  let dx=nearest.x-ball.x;
+  let dy=nearest.y-ball.y;
+  let d=Math.hypot(dx,dy)||1;
+  ball.owner=null;
+  ball.vx=dx/d*9;
+  ball.vy=dy/d*9;
+ }
+}
+
+function shoot(){
+ if(!running)return;
+ let p=home[selected];
+ if(ball.owner!==selected&&Math.hypot(p.x-ball.x,p.y-ball.y)>35)return;
+
+ ball.owner=null;
+ let dx=875-ball.x;
+ let dy=275-ball.y;
+ let d=Math.hypot(dx,dy)||1;
+ ball.vx=dx/d*15;
+ ball.vy=dy/d*15;
+}
+
+function resetBall(){
+ ball={x:450,y:275,vx:0,vy:0,owner:null};
+ home.forEach((p,i)=>{
+  p.x=p.bx;p.y=p.by;
+ });
+ away.forEach((p,i)=>{
+  p.x=p.bx;p.y=p.by;
+ });
+}
+
+function update(dt){
+ if(!running)return;
+
+ seconds+=dt;
+ document.getElementById("clock").textContent=
+ String(Math.floor(seconds/60)).padStart(2,"0")+":"+
+ String(Math.floor(seconds%60)).padStart(2,"0");
+
+ let p=home[selected];
+ let dx=(keys.right?1:0)-(keys.left?1:0);
+ let dy=(keys.down?1:0)-(keys.up?1:0);
+ let d=Math.hypot(dx,dy)||1;
+
+ p.x=Math.max(35,Math.min(865,p.x+dx/d*190*dt));
+ p.y=Math.max(30,Math.min(520,p.y+dy/d*190*dt));
+
+ if(ball.owner===selected){
+  ball.x=p.x+17;
+  ball.y=p.y;
+ }else{
+  if(Math.hypot(p.x-ball.x,p.y-ball.y)<23&&ball.owner===null){
+   ball.owner=selected;
+  }
+  ball.x+=ball.vx;
+  ball.y+=ball.vy;
+  ball.vx*=.985;
+  ball.vy*=.985;
+ }
+
+ away.forEach((q,i)=>{
+  let tx=q.bx,ty=q.by;
+
+  if(i===7||Math.hypot(ball.x-q.x,ball.y-q.y)<115){
+   tx=ball.x;ty=ball.y;
+  }
+
+  let ax=tx-q.x,ay=ty-q.y;
+  let d=Math.hypot(ax,ay)||1;
+  q.x+=ax/d*100*dt;
+  q.y+=ay/d*100*dt;
+
+  if(Math.hypot(q.x-ball.x,q.y-ball.y)<18&&ball.owner===null){
+   ball.owner=11+i;
+  }
+ });
+
+ if(ball.owner!==null&&ball.owner>=11){
+  let q=away[ball.owner-11];
+  ball.x=q.x-15;
+  ball.y=q.y;
+
+  if(q.x<150&&Math.random()<.025){
+   ball.owner=null;
+   ball.vx=-11;
+   ball.vy=(275-ball.y)*.06;
+  }
+ }
+
+ if(ball.y<30||ball.y>520){
+  ball.vy*=-.8;
+  ball.y=Math.max(30,Math.min(520,ball.y));
+ }
+
+ if(ball.x>880&&ball.y>210&&ball.y<340){
+  score1++;
+  resetBall();
+ }
+
+ if(ball.x<20&&ball.y>210&&ball.y<340){
+  score2++;
+  resetBall();
+ }
+
+ ball.x=Math.max(20,Math.min(880,ball.x));
+
+ document.getElementById("score").textContent=score1+" - "+score2;
+
+ if(seconds>=180){
+  running=false;
+  document.querySelector(".panel h1").textContent="¡PARTIDO TERMINADO!";
+  document.querySelector(".panel p").textContent="Resultado: "+score1+" - "+score2;
+  document.getElementById("menu").style.display="flex";
+ }
+}
+
+function loop(t){
+ let dt=Math.min((t-last)/1000||0,.04);
+ last=t;
+ update(dt);
+ draw();
+ requestAnimationFrame(loop);
+}
+
+document.getElementById("start").onclick=()=>{
+ score1=0;score2=0;seconds=0;
+ document.getElementById("score").textContent="0 - 0";
+ document.getElementById("clock").textContent="00:00";
+ createTeams();
+ resetBall();
+ running=true;
+ document.getElementById("menu").style.display="none";
+ document.querySelector(".panel h1").textContent="⚽ FÚTBOL PRO 27";
+ document.querySelector(".panel p").textContent="11 contra 11";
+};
+
+document.getElementById("pass").onclick=pass;
+document.getElementById("shoot").onclick=shoot;
+
+document.querySelectorAll("[data-dir]").forEach(b=>{
+ let dir=b.dataset.dir;
+ b.addEventListener("pointerdown",e=>{
+  e.preventDefault();keys[dir]=true;
+ });
+ ["pointerup","pointerleave","pointercancel"].forEach(ev=>{
+  b.addEventListener(ev,()=>keys[dir]=false);
+ });
+});
+
+window.addEventListener("keydown",e=>{
+ if(e.key==="ArrowUp"||e.key==="w")keys.up=true;
+ if(e.key==="ArrowDown"||e.key==="s")keys.down=true;
+ if(e.key==="ArrowLeft"||e.key==="a")keys.left=true;
+ if(e.key==="ArrowRight"||e.key==="d")keys.right=true;
+ if(e.key.toLowerCase()==="j")pass();
+ if(e.key.toLowerCase()==="k")shoot();
+});
+window.addEventListener("keyup",e=>{
+ if(e.key==="ArrowUp"||e.key==="w")keys.up=false;
+ if(e.key==="ArrowDown"||e.key==="s")keys.down=false;
+ if(e.key==="ArrowLeft"||e.key==="a")keys.left=false;
+ if(e.key==="ArrowRight"||e.key==="d")keys.right=false;
+});
+
+createTeams();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
